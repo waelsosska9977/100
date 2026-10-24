@@ -51,10 +51,10 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
     if (selectedTicker) {
       setEntryPrice(selectedTicker.lastPrice);
       setAtr(selectedTicker.atr14);
-      if (selectedTicker.trend15m === 'bull' && selectedTicker.trend1h === 'bull') {
-        setDirection('LONG');
-      } else if (selectedTicker.trend15m === 'bear' && selectedTicker.trend1h === 'bear') {
+      if (selectedTicker.dominantDirection === 'SHORT') {
         setDirection('SHORT');
+      } else {
+        setDirection('LONG');
       }
     }
   }, [selectedTicker]);
@@ -134,6 +134,11 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
       bankerDominance: selectedTicker?.mcdx.banker,
       mfi: selectedTicker?.mfi,
       volumeBurst: selectedTicker?.volumeBurst,
+      confluencePercent:
+        direction === 'LONG'
+          ? selectedTicker?.bullishConfluence
+          : selectedTicker?.bearishConfluence,
+      verdictText: selectedTicker?.verdictText,
     });
   };
 
@@ -209,10 +214,25 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-[#31d0a0] glow-emerald" />
           <div>
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>مختبر الفرص وحاسبة المخاطر اللحظية</span>
-              <span className="text-xs font-mono text-[#31d0a0]">{currentSymbol}</span>
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-white">مختبر الفرص وحاسبة المخاطر</h2>
+              <span className="text-xs font-mono text-[#31d0a0] font-bold">{currentSymbol}</span>
+              {selectedTicker && (
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                    selectedTicker.verdict === 'STRONG_LONG' ||
+                    selectedTicker.verdict === 'MODERATE_LONG'
+                      ? 'bg-[#31d0a0]/20 text-[#31d0a0] border border-[#31d0a0]/40'
+                      : selectedTicker.verdict === 'STRONG_SHORT' ||
+                        selectedTicker.verdict === 'MODERATE_SHORT'
+                      ? 'bg-[#ff7085]/20 text-[#ff7085] border border-[#ff7085]/40'
+                      : 'bg-[#18233a] text-[#ffc66d] border border-[#ffc66d]/30'
+                  }`}
+                >
+                  {selectedTicker.verdictText} ({selectedTicker.confluencePercent}%)
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-slate-400">
               حساب فوري للأهداف (1.8 / 2.5 / 5.0 ATR) مع إرسال مباشر لبوت تليجرام
             </p>
@@ -230,7 +250,7 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
             }`}
           >
             <ArrowUpRight size={13} />
-            <span>شراء LONG</span>
+            <span>شراء LONG ({selectedTicker?.bullishConfluence ?? '--'}%)</span>
           </button>
           <button
             onClick={() => setDirection('SHORT')}
@@ -241,7 +261,7 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
             }`}
           >
             <ArrowDownRight size={13} />
-            <span>بيع SHORT</span>
+            <span>بيع SHORT ({selectedTicker?.bearishConfluence ?? '--'}%)</span>
           </button>
         </div>
       </div>

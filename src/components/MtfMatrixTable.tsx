@@ -21,8 +21,17 @@ interface MtfMatrixTableProps {
   onSendCoinAlertToTelegram: (ticker: MarketTicker) => Promise<boolean>;
 }
 
-type MatrixFilter = 'ALL' | 'BULL_3' | 'BEAR_0' | 'WHALE_DOM' | 'MFI_OVERSOLD' | 'MFI_OVERBOUGHT' | 'VOL_BURST';
-type SortField = 'RANK' | 'CHANGE' | 'VOLUME' | 'BANKER' | 'MFI';
+type MatrixFilter =
+  | 'ALL'
+  | 'READY_LONG'
+  | 'READY_SHORT'
+  | 'BULL_3'
+  | 'BEAR_0'
+  | 'WHALE_DOM'
+  | 'MFI_OVERSOLD'
+  | 'VOL_BURST';
+
+type SortField = 'RANK' | 'CONFLUENCE' | 'CHANGE' | 'VOLUME' | 'BANKER' | 'MFI';
 
 export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
   tickers,
@@ -32,7 +41,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MatrixFilter>('ALL');
-  const [sortField, setSortField] = useState<SortField>('RANK');
+  const [sortField, setSortField] = useState<SortField>('CONFLUENCE');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -59,31 +68,39 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
     return ((price - ema) / ema) * 100;
   };
 
-  // Counts for filter tabs
   const counts = useMemo(() => {
     return {
       all: tickers.length,
+      readyLong: tickers.filter(
+        (t) => t.verdict === 'STRONG_LONG' || t.verdict === 'MODERATE_LONG'
+      ).length,
+      readyShort: tickers.filter(
+        (t) => t.verdict === 'STRONG_SHORT' || t.verdict === 'MODERATE_SHORT'
+      ).length,
       bull3: tickers.filter((t) => t.alignmentScore === 3).length,
       bear0: tickers.filter((t) => t.alignmentScore === 0).length,
       whaleDom: tickers.filter((t) => t.mcdx.banker >= 70).length,
       mfiOversold: tickers.filter((t) => t.mfi < 25).length,
-      mfiOverbought: tickers.filter((t) => t.mfi > 75).length,
       volBurst: tickers.filter((t) => t.volumeBurst >= 2.2).length,
     };
   }, [tickers]);
 
-  // Filtered & sorted list
   const filteredTickers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const list = tickers.filter((t) => {
       if (q && !t.symbol.toLowerCase().includes(q) && !t.name.toLowerCase().includes(q)) {
         return false;
       }
+      if (activeFilter === 'READY_LONG') {
+        return t.verdict === 'STRONG_LONG' || t.verdict === 'MODERATE_LONG';
+      }
+      if (activeFilter === 'READY_SHORT') {
+        return t.verdict === 'STRONG_SHORT' || t.verdict === 'MODERATE_SHORT';
+      }
       if (activeFilter === 'BULL_3') return t.alignmentScore === 3;
       if (activeFilter === 'BEAR_0') return t.alignmentScore === 0;
       if (activeFilter === 'WHALE_DOM') return t.mcdx.banker >= 70;
       if (activeFilter === 'MFI_OVERSOLD') return t.mfi < 25;
-      if (activeFilter === 'MFI_OVERBOUGHT') return t.mfi > 75;
       if (activeFilter === 'VOL_BURST') return t.volumeBurst >= 2.2;
       return true;
     });
@@ -92,7 +109,10 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
       list.sort((a, b) => {
         let valA = 0;
         let valB = 0;
-        if (sortField === 'CHANGE') {
+        if (sortField === 'CONFLUENCE') {
+          valA = a.confluencePercent;
+          valB = b.confluencePercent;
+        } else if (sortField === 'CHANGE') {
           valA = a.priceChangePercent;
           valB = b.priceChangePercent;
         } else if (sortField === 'VOLUME') {
@@ -124,7 +144,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
       setSortAsc(!sortAsc);
     } else {
       setSortField(field);
-      setSortAsc(field === 'MFI'); // Default ascending for MFI (oversold first), descending for others
+      setSortAsc(field === 'MFI');
     }
     setCurrentPage(1);
   };
@@ -150,9 +170,9 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
             <div className="w-2.5 h-2.5 rounded-full bg-[#31d0a0] glow-emerald" />
             <div>
               <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-                <span>ماسح الـ 100 عملة ومصفوفة الفريمات المتعددة</span>
+                <span>جدول مسح الـ 100 عملة ونسبة التوافق وقرار الدخول</span>
                 <span className="text-xs font-mono text-[#7da8ff] font-normal">
-                  100-Coin Institutional MTF Matrix
+                  100-Coin Confluence &amp; Entry Matrix
                 </span>
               </h2>
             </div>
@@ -219,13 +239,41 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
 
         <button
           onClick={() => {
+            setActiveFilter('READY_LONG');
+            setCurrentPage(1);
+          }}
+          className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+            activeFilter === 'READY_LONG'
+              ? 'bg-[#31d0a0] text-slate-950 shadow-sm'
+              : 'bg-[#31d0a0]/15 text-[#31d0a0] border border-[#31d0a0]/40 hover:bg-[#31d0a0]/25'
+          }`}
+        >
+          🟢 ادخل شراء الآن ({counts.readyLong})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveFilter('READY_SHORT');
+            setCurrentPage(1);
+          }}
+          className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+            activeFilter === 'READY_SHORT'
+              ? 'bg-[#ff7085] text-white shadow-sm'
+              : 'bg-[#ff7085]/15 text-[#ff7085] border border-[#ff7085]/40 hover:bg-[#ff7085]/25'
+          }`}
+        >
+          🔴 ادخل بيع الآن ({counts.readyShort})
+        </button>
+
+        <button
+          onClick={() => {
             setActiveFilter('BULL_3');
             setCurrentPage(1);
           }}
           className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             activeFilter === 'BULL_3'
               ? 'bg-[#31d0a0] text-slate-950 font-bold'
-              : 'bg-[#18233a] text-[#31d0a0] hover:bg-[#31d0a0]/20'
+              : 'bg-[#18233a] text-slate-300 hover:text-[#31d0a0]'
           }`}
         >
           توافق صاعد 3/3 ({counts.bull3})
@@ -239,7 +287,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
           className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             activeFilter === 'BEAR_0'
               ? 'bg-[#ff7085] text-white font-bold'
-              : 'bg-[#18233a] text-[#ff7085] hover:bg-[#ff7085]/20'
+              : 'bg-[#18233a] text-slate-300 hover:text-[#ff7085]'
           }`}
         >
           توافق هابط 0/3 ({counts.bear0})
@@ -272,34 +320,6 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
         >
           تجميع حيتان MFI&lt;25 ({counts.mfiOversold})
         </button>
-
-        <button
-          onClick={() => {
-            setActiveFilter('MFI_OVERBOUGHT');
-            setCurrentPage(1);
-          }}
-          className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-            activeFilter === 'MFI_OVERBOUGHT'
-              ? 'bg-[#ff7085] text-white font-bold'
-              : 'bg-[#18233a] text-slate-300 hover:text-[#ff7085]'
-          }`}
-        >
-          تصريف مؤسسي MFI&gt;75 ({counts.mfiOverbought})
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveFilter('VOL_BURST');
-            setCurrentPage(1);
-          }}
-          className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-            activeFilter === 'VOL_BURST'
-              ? 'bg-[#ffc66d] text-slate-950 font-bold'
-              : 'bg-[#18233a] text-[#ffc66d] hover:bg-[#ffc66d]/20'
-          }`}
-        >
-          انفجار فوليوم &gt;2.2x ({counts.volBurst})
-        </button>
       </div>
 
       {/* Responsive Table */}
@@ -326,16 +346,27 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                   <ArrowUpDown size={11} />
                 </button>
               </th>
-              <th className="py-2.5 px-2.5 text-center font-semibold">15m (EMA50)</th>
-              <th className="py-2.5 px-2.5 text-center font-semibold">1h (EMA50)</th>
-              <th className="py-2.5 px-2.5 text-center font-semibold">4h (EMA50)</th>
-              <th className="py-2.5 px-2.5 text-center font-semibold">التوافق</th>
+              <th className="py-2.5 px-2 text-center font-semibold">15m</th>
+              <th className="py-2.5 px-2 text-center font-semibold">1h</th>
+              <th className="py-2.5 px-2 text-center font-semibold">4h</th>
+              <th className="py-2.5 px-2.5 text-center font-semibold">
+                <button
+                  onClick={() => handleSort('CONFLUENCE')}
+                  className="flex items-center justify-center gap-1 text-[#7da8ff] hover:text-white mx-auto"
+                >
+                  <span>نسبة التوافق</span>
+                  <ArrowUpDown size={11} />
+                </button>
+              </th>
+              <th className="py-2.5 px-2.5 text-center font-semibold font-sans text-white">
+                هل أدخل الصفقة؟
+              </th>
               <th className="py-2.5 px-2.5 text-center font-semibold">
                 <button
                   onClick={() => handleSort('BANKER')}
                   className="flex items-center justify-center gap-1 hover:text-white mx-auto"
                 >
-                  <span>الحيتان MCDX</span>
+                  <span>الحيتان</span>
                   <ArrowUpDown size={11} />
                 </button>
               </th>
@@ -344,16 +375,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                   onClick={() => handleSort('MFI')}
                   className="flex items-center justify-center gap-1 hover:text-white mx-auto"
                 >
-                  <span>السيولة MFI</span>
-                  <ArrowUpDown size={11} />
-                </button>
-              </th>
-              <th className="py-2.5 px-3 text-left font-semibold">
-                <button
-                  onClick={() => handleSort('VOLUME')}
-                  className="flex items-center gap-1 hover:text-white mr-auto"
-                >
-                  <span>فوليوم 24h</span>
+                  <span>MFI</span>
                   <ArrowUpDown size={11} />
                 </button>
               </th>
@@ -372,6 +394,11 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
 
               const isSendingThis = sendingSymbol === ticker.symbol;
               const isSentThis = sentSymbol === ticker.symbol;
+
+              const isLongVerdict =
+                ticker.verdict === 'STRONG_LONG' || ticker.verdict === 'MODERATE_LONG';
+              const isShortVerdict =
+                ticker.verdict === 'STRONG_SHORT' || ticker.verdict === 'MODERATE_SHORT';
 
               return (
                 <tr
@@ -405,7 +432,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-sans truncate max-w-[110px]">
+                        <div className="text-[10px] text-slate-400 font-sans truncate max-w-[100px]">
                           {ticker.name}
                         </div>
                       </div>
@@ -435,19 +462,19 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                   </td>
 
                   {/* 15m Trend */}
-                  <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
                     <div className="inline-flex flex-col items-center">
                       <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
+                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
                           ticker.trend15m === 'bull'
                             ? 'bg-[#31d0a0]/15 text-[#31d0a0] border border-[#31d0a0]/30'
                             : 'bg-[#ff7085]/15 text-[#ff7085] border border-[#ff7085]/30'
                         }`}
                       >
-                        {ticker.trend15m === 'bull' ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {ticker.trend15m === 'bull' ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                         <span>{ticker.trend15m === 'bull' ? 'صاعد' : 'هابط'}</span>
                       </span>
-                      <span className="text-[9px] text-slate-400 font-mono mt-0.5">
+                      <span className="text-[9px] text-slate-400 font-mono">
                         {dist15 >= 0 ? '+' : ''}
                         {dist15.toFixed(1)}%
                       </span>
@@ -455,19 +482,19 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                   </td>
 
                   {/* 1h Trend */}
-                  <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
                     <div className="inline-flex flex-col items-center">
                       <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
+                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
                           ticker.trend1h === 'bull'
                             ? 'bg-[#31d0a0]/15 text-[#31d0a0] border border-[#31d0a0]/30'
                             : 'bg-[#ff7085]/15 text-[#ff7085] border border-[#ff7085]/30'
                         }`}
                       >
-                        {ticker.trend1h === 'bull' ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {ticker.trend1h === 'bull' ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                         <span>{ticker.trend1h === 'bull' ? 'صاعد' : 'هابط'}</span>
                       </span>
-                      <span className="text-[9px] text-slate-400 font-mono mt-0.5">
+                      <span className="text-[9px] text-slate-400 font-mono">
                         {dist1h >= 0 ? '+' : ''}
                         {dist1h.toFixed(1)}%
                       </span>
@@ -475,63 +502,91 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                   </td>
 
                   {/* 4h Trend */}
-                  <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
                     <div className="inline-flex flex-col items-center">
                       <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
+                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold ${
                           ticker.trend4h === 'bull'
                             ? 'bg-[#31d0a0]/15 text-[#31d0a0] border border-[#31d0a0]/30'
                             : 'bg-[#ff7085]/15 text-[#ff7085] border border-[#ff7085]/30'
                         }`}
                       >
-                        {ticker.trend4h === 'bull' ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {ticker.trend4h === 'bull' ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                         <span>{ticker.trend4h === 'bull' ? 'صاعد' : 'هابط'}</span>
                       </span>
-                      <span className="text-[9px] text-slate-400 font-mono mt-0.5">
+                      <span className="text-[9px] text-slate-400 font-mono">
                         {dist4h >= 0 ? '+' : ''}
                         {dist4h.toFixed(1)}%
                       </span>
                     </div>
                   </td>
 
-                  {/* Alignment Score */}
+                  {/* Confluence Percentage */}
+                  <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <div className="flex items-center gap-1 font-mono text-xs font-bold">
+                        <span
+                          className={
+                            ticker.dominantDirection === 'LONG'
+                              ? 'text-[#31d0a0]'
+                              : ticker.dominantDirection === 'SHORT'
+                              ? 'text-[#ff7085]'
+                              : 'text-[#ffc66d]'
+                          }
+                        >
+                          {ticker.confluencePercent}%
+                        </span>
+                        <span className="text-[10px] font-sans text-slate-400">
+                          ({ticker.dominantDirection === 'LONG' ? 'صاعد' : ticker.dominantDirection === 'SHORT' ? 'هابط' : 'محايد'})
+                        </span>
+                      </div>
+                      <div className="w-16 h-1.5 bg-[#0b1020] rounded-full overflow-hidden mt-1 border border-[#1f2d47]">
+                        <div
+                          style={{ width: `${ticker.confluencePercent}%` }}
+                          className={`h-full ${
+                            ticker.dominantDirection === 'LONG'
+                              ? 'bg-[#31d0a0]'
+                              : ticker.dominantDirection === 'SHORT'
+                              ? 'bg-[#ff7085]'
+                              : 'bg-[#ffc66d]'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Entry Verdict: هل أدخل الصفقة؟ */}
                   <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                     <span
-                      className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded ${
-                        ticker.alignmentScore === 3
-                          ? 'text-[#31d0a0] bg-[#31d0a0]/10'
-                          : ticker.alignmentScore === 0
-                          ? 'text-[#ff7085] bg-[#ff7085]/10'
-                          : 'text-slate-300'
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                        ticker.verdict === 'STRONG_LONG'
+                          ? 'bg-[#31d0a0] text-slate-950 shadow-sm'
+                          : isLongVerdict
+                          ? 'bg-[#31d0a0]/20 text-[#31d0a0] border border-[#31d0a0]/50'
+                          : ticker.verdict === 'STRONG_SHORT'
+                          ? 'bg-[#ff7085] text-white shadow-sm'
+                          : isShortVerdict
+                          ? 'bg-[#ff7085]/20 text-[#ff7085] border border-[#ff7085]/50'
+                          : 'bg-[#18233a] text-slate-400 border border-[#2e4166]'
                       }`}
                     >
-                      {ticker.alignmentScore}/3
+                      {ticker.verdictText}
                     </span>
                   </td>
 
                   {/* Banker MCDX */}
                   <td className="py-2.5 px-2.5 text-center whitespace-nowrap font-mono">
-                    <div className="flex flex-col items-center">
-                      <span
-                        className={`text-[11px] font-bold ${
-                          ticker.mcdx.banker >= 70
-                            ? 'text-[#7da8ff]'
-                            : ticker.mcdx.banker >= 50
-                            ? 'text-[#31d0a0]'
-                            : 'text-slate-400'
-                        }`}
-                      >
-                        {ticker.mcdx.banker.toFixed(0)}%
-                      </span>
-                      <div className="w-12 h-1 bg-[#0b1020] rounded-full overflow-hidden mt-0.5">
-                        <div
-                          style={{ width: `${ticker.mcdx.banker}%` }}
-                          className={`h-full ${
-                            ticker.mcdx.banker >= 65 ? 'bg-[#7da8ff]' : 'bg-[#31d0a0]'
-                          }`}
-                        />
-                      </div>
-                    </div>
+                    <span
+                      className={`text-[11px] font-bold ${
+                        ticker.mcdx.banker >= 70
+                          ? 'text-[#7da8ff]'
+                          : ticker.mcdx.banker >= 50
+                          ? 'text-[#31d0a0]'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {ticker.mcdx.banker.toFixed(0)}%
+                    </span>
                   </td>
 
                   {/* MFI */}
@@ -549,12 +604,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                     </span>
                   </td>
 
-                  {/* Volume */}
-                  <td className="py-2.5 px-3 text-left font-mono text-slate-300 whitespace-nowrap text-[11px]">
-                    ${formatVolume(ticker.quoteVolume)}
-                  </td>
-
-                  {/* Actions: Analyze + Send to Telegram */}
+                  {/* Actions */}
                   <td className="py-2.5 px-3 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1.5">
                       <button
@@ -576,7 +626,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                             ? 'bg-[#31d0a0]/20 border-[#31d0a0] text-[#31d0a0]'
                             : 'bg-[#2aabee]/15 hover:bg-[#2aabee]/30 border-[#2aabee]/40 text-[#2aabee]'
                         }`}
-                        title="إرسال تنبيه هذه العملة فوراً إلى تليجرام"
+                        title="إرسال تنبيه وقرار هذه العملة فوراً إلى تليجرام"
                       >
                         {isSentThis ? <Check size={12} /> : <Send size={12} />}
                       </button>

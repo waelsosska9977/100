@@ -12,6 +12,7 @@ import {
 import { soundService } from './services/soundService';
 import { telegramService } from './services/telegramService';
 import { Header } from './components/Header';
+import { AlignmentDecisionHub } from './components/AlignmentDecisionHub';
 import { MtfMatrixTable } from './components/MtfMatrixTable';
 import { McdxSmartMoneyTracker } from './components/McdxSmartMoneyTracker';
 import { MfiOscillator } from './components/MfiOscillator';
@@ -59,7 +60,6 @@ export default function App() {
 
   const prevSignalsCountRef = useRef<number>(0);
 
-  // Check Telegram Bot connection on mount
   useEffect(() => {
     telegramService.checkStatus().then((status) => {
       setTelegramBotConnected(Boolean(status.ok));
@@ -76,7 +76,6 @@ export default function App() {
     }
   };
 
-  // Fetch data for 100 coins
   const loadMarketData = useCallback(
     async (manual = false) => {
       if (manual) setIsRefreshing(true);
@@ -97,7 +96,6 @@ export default function App() {
           return null;
         });
 
-        // Generate institutional signals across all 100 coins
         const newSignals = generateInstitutionalSignals(result.tickers);
         setSignals(newSignals);
 
@@ -109,7 +107,6 @@ export default function App() {
         }
         prevSignalsCountRef.current = newSignals.length;
 
-        // If Auto-Telegram is enabled, send the highest-conviction unsent signal
         if (autoTelegramEnabled && newSignals.length > 0) {
           const unsentTop = newSignals.find((s) => !telegramService.hasSentSignal(s.id));
           if (unsentTop) {
@@ -187,9 +184,8 @@ export default function App() {
     }
   };
 
-  // Send single coin snapshot from the 100-coin table to Telegram
   const handleSendCoinAlertToTelegram = async (ticker: MarketTicker): Promise<boolean> => {
-    const isBull = ticker.alignmentScore >= 2;
+    const isBull = ticker.dominantDirection !== 'SHORT';
     const decimals = ticker.lastPrice < 0.001 ? 7 : ticker.lastPrice < 1 ? 5 : 3;
     const entry = ticker.lastPrice;
     const atr = ticker.atr14;
@@ -208,10 +204,8 @@ export default function App() {
       symbol: ticker.symbol,
       displaySymbol: ticker.displaySymbol,
       type: isBull ? 'LONG' : 'SHORT',
-      title: `تحليل فوري (${ticker.alignmentScore}/3 MTF)`,
-      reason: `تموضع الفريمات: 15m(${ticker.trend15m === 'bull' ? 'صاعد' : 'هابط'}) | 1h(${
-        ticker.trend1h === 'bull' ? 'صاعد' : 'هابط'
-      }) | 4h(${ticker.trend4h === 'bull' ? 'صاعد' : 'هابط'})`,
+      title: `نسبة التوافق ${ticker.confluencePercent}% — القرار: ${ticker.verdictText}`,
+      reason: ticker.verdictReason,
       timeframe: '15m / 1h / 4h',
       entryPrice: entry,
       sl,
@@ -221,6 +215,8 @@ export default function App() {
       volumeBurst: ticker.volumeBurst,
       bankerDominance: ticker.mcdx.banker,
       mfiValue: ticker.mfi,
+      confluencePercent: ticker.confluencePercent,
+      verdictText: ticker.verdictText,
       status: 'ACTIVE',
       timestamp: Date.now(),
     };
@@ -230,7 +226,6 @@ export default function App() {
     return res.ok;
   };
 
-  // Send 100-coin comprehensive Market Pulse report to Telegram
   const handleSendPulseReportToTelegram = async (): Promise<boolean> => {
     const msg = telegramService.formatMarketPulseSummary(tickers, btcMacro, signals);
     const res = await telegramService.sendMessage(msg);
@@ -258,7 +253,17 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-[1720px] w-full mx-auto p-3 sm:p-4 lg:p-6 space-y-5">
-        {/* Section A: 100-Coin Multi-Timeframe Trend Matrix */}
+        {/* Section A: Bullish vs Bearish Alignment & Trade Entry Decision Hub */}
+        <section aria-label="قسم التوافق الصاعد والتوافق الهابط ومستشار القرار">
+          <AlignmentDecisionHub
+            tickers={tickers}
+            selectedTicker={selectedTicker}
+            onSelectTicker={(ticker) => setSelectedTicker(ticker)}
+            onSendCoinAlertToTelegram={handleSendCoinAlertToTelegram}
+          />
+        </section>
+
+        {/* Section B: 100-Coin Multi-Timeframe Trend Matrix */}
         <section aria-label="مصفوفة الفريمات المتعددة لـ 100 عملة">
           <MtfMatrixTable
             tickers={tickers}
@@ -268,7 +273,7 @@ export default function App() {
           />
         </section>
 
-        {/* Section B: Institutional Flow & Saturation (2 Column Grid) */}
+        {/* Section C: Institutional Flow & Saturation (2 Column Grid) */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-5" aria-label="تحليل السيولة والتشبع المؤسسي">
           <McdxSmartMoneyTracker
             ticker={selectedTicker}
@@ -279,7 +284,7 @@ export default function App() {
           <MfiOscillator ticker={selectedTicker} />
         </section>
 
-        {/* Section C: Opportunity Lab & Live Signals Feed (2 Column Grid) */}
+        {/* Section D: Opportunity Lab & Live Signals Feed (2 Column Grid) */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-5" aria-label="مختبر الفرص وسجل التنبيهات">
           <div id="opportunity-calculator-section" className="lg:col-span-7">
             <OpportunityCalculator

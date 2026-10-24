@@ -1,4 +1,4 @@
-import { MarketTicker, SignalItem } from '../types';
+import { ConfluenceChecklistItem, MarketTicker, SignalItem, TradeVerdictType } from '../types';
 
 export interface PairDefinition {
   symbol: string;
@@ -146,13 +146,225 @@ const technicalHistory: Record<
   }
 > = {};
 
-// Deterministic hash for realistic spread across 100 coins
 function symbolSeed(sym: string): number {
   let h = 0;
   for (let i = 0; i < sym.length; i++) {
     h = (h * 31 + sym.charCodeAt(i)) % 1000;
   }
   return h / 1000;
+}
+
+// Compute institutional confluence score (0-100%) and trade verdict
+function evaluateCoinConfluence(params: {
+  trend15m: 'bull' | 'bear';
+  trend1h: 'bull' | 'bear';
+  trend4h: 'bull' | 'bear';
+  alignmentScore: number;
+  banker: number;
+  mfi: number;
+  volumeBurst: number;
+  btcBull15m: boolean;
+  btcBull1h: boolean;
+}): {
+  bullishConfluence: number;
+  bearishConfluence: number;
+  dominantDirection: 'LONG' | 'SHORT' | 'NEUTRAL';
+  confluencePercent: number;
+  verdict: TradeVerdictType;
+  verdictText: string;
+  verdictReason: string;
+  checklist: ConfluenceChecklistItem[];
+} {
+  const {
+    trend15m,
+    trend1h,
+    trend4h,
+    alignmentScore,
+    banker,
+    mfi,
+    volumeBurst,
+    btcBull15m,
+    btcBull1h,
+  } = params;
+
+  // 1. Bullish Score Calculation (0 - 100)
+  let bullScore = 0;
+  if (trend15m === 'bull') bullScore += 12;
+  if (trend1h === 'bull') bullScore += 14;
+  if (trend4h === 'bull') bullScore += 14; // Max 40 for MTF
+
+  // BTC Macro (Max 15)
+  if (btcBull15m) bullScore += 7;
+  if (btcBull1h) bullScore += 8;
+
+  // Banker MCDX+ Flow (Max 25)
+  if (banker >= 70) bullScore += 25;
+  else if (banker >= 55) bullScore += 20;
+  else if (banker >= 45) bullScore += 12;
+  else bullScore += Math.round((banker / 45) * 8);
+
+  // MFI Zone for Long (Max 10)
+  if (mfi < 30) bullScore += 10; // Whale accumulation
+  else if (mfi <= 68) bullScore += 8; // Healthy bullish zone
+  else if (mfi <= 75) bullScore += 4;
+  else bullScore += 0; // Overbought risk
+
+  // Volume Burst (Max 10)
+  if (volumeBurst >= 2.2) bullScore += 10;
+  else if (volumeBurst >= 1.6) bullScore += 7;
+  else bullScore += 4;
+
+  // 2. Bearish Score Calculation (0 - 100)
+  let bearScore = 0;
+  if (trend15m === 'bear') bearScore += 12;
+  if (trend1h === 'bear') bearScore += 14;
+  if (trend4h === 'bear') bearScore += 14; // Max 40 for MTF
+
+  // BTC Macro Bearish (Max 15)
+  if (!btcBull15m) bearScore += 7;
+  if (!btcBull1h) bearScore += 8;
+
+  // Institutional Distribution / Weak Banker (Max 25)
+  if (banker <= 30) bearScore += 25;
+  else if (banker <= 45) bearScore += 19;
+  else if (banker <= 55) bearScore += 10;
+  else bearScore += 3;
+
+  // MFI Zone for Short (Max 10)
+  if (mfi >= 75) bearScore += 10; // Institutional distribution
+  else if (mfi >= 55) bearScore += 7;
+  else if (mfi >= 30) bearScore += 5;
+  else bearScore += 0; // Oversold bounce risk
+
+  // Volume Burst on Breakdown (Max 10)
+  if (volumeBurst >= 2.2) bearScore += 10;
+  else if (volumeBurst >= 1.6) bearScore += 7;
+  else bearScore += 4;
+
+  const bullishConfluence = Math.min(99, Math.max(5, Math.round(bullScore)));
+  const bearishConfluence = Math.min(99, Math.max(5, Math.round(bearScore)));
+
+  const isLongDominant = bullishConfluence >= bearishConfluence;
+  const dominantDirection: 'LONG' | 'SHORT' | 'NEUTRAL' =
+    Math.abs(bullishConfluence - bearishConfluence) < 8
+      ? 'NEUTRAL'
+      : isLongDominant
+      ? 'LONG'
+      : 'SHORT';
+
+  const confluencePercent = isLongDominant ? bullishConfluence : bearishConfluence;
+
+  let verdict: TradeVerdictType = 'NO_TRADE';
+  let verdictText = '⛔ لا تدخل (انتظر)';
+  let verdictReason = 'تضارب في الفريمات أو ضعف في سيولة الحيتان، يفضل الانتظار.';
+
+  if (isLongDominant) {
+    if (bullishConfluence >= 78 && alignmentScore >= 2) {
+      verdict = 'STRONG_LONG';
+      verdictText = '🟢 ادخل شراء بقوة (LONG)';
+      verdictReason = `توافق صاعد ممتاز (${bullishConfluence}%) مع تمركز حيتان ${banker.toFixed(0)}% وزخم فريمات (${alignmentScore}/3).`;
+    } else if (bullishConfluence >= 66 && trend15m === 'bull' && trend1h === 'bull') {
+      verdict = 'MODERATE_LONG';
+      verdictText = '🟢 ادخل شراء (LONG)';
+      verdictReason = `توافق إيجابي جيد (${bullishConfluence}%) على فريمي 15m و 1h مع التزام صارم بوقف الخسارة.`;
+    } else {
+      verdict = 'NO_TRADE';
+      verdictText = '⚠️ لا تدخل الآن (انتظر)';
+      verdictReason = `نسبة التوافق الصاعد (${bullishConfluence}%) غير كافية للدخول الآمن (المطلوب ≥ 66% مع توافق 15m+1h).`;
+    }
+  } else {
+    if (bearishConfluence >= 78 && alignmentScore <= 1) {
+      verdict = 'STRONG_SHORT';
+      verdictText = '🔴 ادخل بيع بقوة (SHORT)';
+      verdictReason = `توافق هابط وتصريف مؤكد (${bearishConfluence}%) مع كسر المتوسطات وضعف سيولة الحيتان (${banker.toFixed(0)}%).`;
+    } else if (bearishConfluence >= 66 && trend15m === 'bear' && trend1h === 'bear') {
+      verdict = 'MODERATE_SHORT';
+      verdictText = '🔴 ادخل بيع (SHORT)';
+      verdictReason = `توافق هابط جيد (${bearishConfluence}%) تحت EMA 50 على فريمي 15m و 1h.`;
+    } else {
+      verdict = 'NO_TRADE';
+      verdictText = '⚠️ لا تدخل الآن (انتظر)';
+      verdictReason = `نسبة التوافق الهابط (${bearishConfluence}%) غير مكتملة الشروط، تجنب التداول العشوائي.`;
+    }
+  }
+
+  // Build transparent 5-pillar checklist for the dominant direction
+  const checklist: ConfluenceChecklistItem[] = isLongDominant
+    ? [
+        {
+          label: 'توافق الفريمات (15m + 1h + 4h EMA50)',
+          passed: alignmentScore >= 2 && trend15m === 'bull' && trend1h === 'bull',
+          detail: `${alignmentScore}/3 فريمات صاعدة`,
+          weight: 40,
+        },
+        {
+          label: 'هيمنة سيولة الحيتان (MCDX+ Banker)',
+          passed: banker >= 55,
+          detail: `${banker.toFixed(0)}% تدفق مؤسسي`,
+          weight: 25,
+        },
+        {
+          label: 'اتجاه ماكرو البيتكوين (BTC Regime)',
+          passed: btcBull15m || btcBull1h,
+          detail: btcBull15m && btcBull1h ? 'صاعد بالكامل' : btcBull15m ? 'صاعد 15m' : 'هابط حذر',
+          weight: 15,
+        },
+        {
+          label: 'مؤشر تشبع السيولة (MFI < 72)',
+          passed: mfi < 72,
+          detail: mfi < 25 ? `تجميع حيتان (${mfi.toFixed(0)})` : `قيمة MFI: ${mfi.toFixed(0)}`,
+          weight: 10,
+        },
+        {
+          label: 'قوة الفوليوم (Volume Burst)',
+          passed: volumeBurst >= 1.6,
+          detail: `${volumeBurst}x مضاعف السيولة`,
+          weight: 10,
+        },
+      ]
+    : [
+        {
+          label: 'توافق الهبوط (كسر EMA50 على 15m + 1h)',
+          passed: alignmentScore <= 1 && trend15m === 'bear' && trend1h === 'bear',
+          detail: `${3 - alignmentScore}/3 فريمات هابطة`,
+          weight: 40,
+        },
+        {
+          label: 'ضعف/خروج الحيتان (MCDX+ Distribution)',
+          passed: banker <= 48,
+          detail: `بقاء الحيتان ${banker.toFixed(0)}% فقط`,
+          weight: 25,
+        },
+        {
+          label: 'ضغط ماكرو البيتكوين (BTC Macro)',
+          passed: !btcBull15m || !btcBull1h,
+          detail: !btcBull15m && !btcBull1h ? 'هابط داعم للبيع' : 'مختلط',
+          weight: 15,
+        },
+        {
+          label: 'عدم وجود تشبع بيعي (MFI > 28)',
+          passed: mfi > 28,
+          detail: mfi > 75 ? `تصريف مؤسسي (${mfi.toFixed(0)})` : `قيمة MFI: ${mfi.toFixed(0)}`,
+          weight: 10,
+        },
+        {
+          label: 'زخم فوليوم الكسر (Volume Burst)',
+          passed: volumeBurst >= 1.6,
+          detail: `${volumeBurst}x مضاعف السيولة`,
+          weight: 10,
+        },
+      ];
+
+  return {
+    bullishConfluence,
+    bearishConfluence,
+    dominantDirection,
+    confluencePercent,
+    verdict,
+    verdictText,
+    verdictReason,
+    checklist,
+  };
 }
 
 export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promise<FetchResult> {
@@ -171,13 +383,13 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
 
   let isLive = false;
 
-  // 1. Try server-side proxy first (/api/binance/tickers)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch('/api/binance/tickers', { signal: controller.signal });
     clearTimeout(timeoutId);
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       const json = await res.json();
       if (json && json.ok && Array.isArray(json.data)) {
         rawTickers = json.data;
@@ -188,7 +400,6 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
     // fallback to direct browser call
   }
 
-  // 2. Fallback to direct public Binance Data API
   if (!isLive) {
     try {
       const controller = new AbortController();
@@ -214,12 +425,21 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
     rawMap.set(t.symbol, t);
   }
 
-  const processedTickers: MarketTicker[] = [];
+  const interimTickers: Array<Omit<
+    MarketTicker,
+    | 'bullishConfluence'
+    | 'bearishConfluence'
+    | 'dominantDirection'
+    | 'confluencePercent'
+    | 'verdict'
+    | 'verdictText'
+    | 'verdictReason'
+    | 'checklist'
+  >> = [];
 
   for (let idx = 0; idx < TOP_100_PAIRS.length; idx++) {
     const item = TOP_100_PAIRS[idx];
     const seed = symbolSeed(item.symbol);
-    // Support IOUSDT fallback if IOUUSDT
     const raw = rawMap.get(item.symbol) || (item.symbol === 'IOUUSDT' ? rawMap.get('IOUSDT') : undefined);
 
     let lastPrice = item.defaultPrice;
@@ -256,7 +476,6 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
       const offsetMultiplier1h = isPositive ? 0.978 : 1.022;
       const offsetMultiplier4h = isPositive ? 0.965 : 1.035;
 
-      // Range ratio in 24h high-low
       const rangeRatio = highPrice > lowPrice ? (lastPrice - lowPrice) / (highPrice - lowPrice) : 0.5;
       const initialMfi = Math.min(94, Math.max(12, rangeRatio * 80 + (seed - 0.5) * 20));
       const initialBanker = Math.min(92, Math.max(15, rangeRatio * 75 + (priceChangePercent > 2 ? 15 : 0)));
@@ -314,7 +533,7 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
 
     const burst = Math.max(1.1, Math.min(5.2, 1.3 + Math.abs(priceChangePercent) / 2.8));
 
-    processedTickers.push({
+    interimTickers.push({
       symbol: item.symbol,
       displaySymbol: item.displaySymbol,
       baseAsset: item.baseAsset,
@@ -348,9 +567,30 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
     });
   }
 
-  const btcTicker = processedTickers.find((t) => t.symbol === 'BTCUSDT') || processedTickers[0];
-  const btcStatus15m = btcTicker.lastPrice >= btcTicker.ema100_15m ? 'BULLISH' : 'BEARISH';
-  const btcStatus1h = btcTicker.lastPrice >= btcTicker.ema100_1h ? 'BULLISH' : 'BEARISH';
+  const btcBase = interimTickers.find((t) => t.symbol === 'BTCUSDT') || interimTickers[0];
+  const btcStatus15m = btcBase.lastPrice >= btcBase.ema100_15m ? 'BULLISH' : 'BEARISH';
+  const btcStatus1h = btcBase.lastPrice >= btcBase.ema100_1h ? 'BULLISH' : 'BEARISH';
+  const btcBull15m = btcStatus15m === 'BULLISH';
+  const btcBull1h = btcStatus1h === 'BULLISH';
+
+  // Enrich all 100 tickers with Confluence % and Trade Verdict
+  const processedTickers: MarketTicker[] = interimTickers.map((t) => {
+    const confluence = evaluateCoinConfluence({
+      trend15m: t.trend15m,
+      trend1h: t.trend1h,
+      trend4h: t.trend4h,
+      alignmentScore: t.alignmentScore,
+      banker: t.mcdx.banker,
+      mfi: t.mfi,
+      volumeBurst: t.volumeBurst,
+      btcBull15m,
+      btcBull1h,
+    });
+    return {
+      ...t,
+      ...confluence,
+    };
+  });
 
   const endTime = performance.now();
   const latency = Math.round(endTime - startTime);
@@ -360,9 +600,9 @@ export async function fetchLiveBinanceTickers(_trackedSymbols?: string[]): Promi
     btcMacro: {
       status15m: btcStatus15m,
       status1h: btcStatus1h,
-      price: btcTicker.lastPrice,
-      ema100_15m: btcTicker.ema100_15m,
-      ema100_1h: btcTicker.ema100_1h,
+      price: btcBase.lastPrice,
+      ema100_15m: btcBase.ema100_15m,
+      ema100_1h: btcBase.ema100_1h,
     },
     isLive,
     lastLatencyMs: latency,
@@ -374,13 +614,9 @@ export function generateInstitutionalSignals(tickers: MarketTicker[]): SignalIte
   const signals: SignalItem[] = [];
 
   for (const ticker of tickers) {
-    const isBullAligned = ticker.trend15m === 'bull' && ticker.trend1h === 'bull';
-    const isBearAligned = ticker.trend15m === 'bear' && ticker.trend1h === 'bear';
     const decimals = ticker.lastPrice < 0.001 ? 7 : ticker.lastPrice < 1 ? 5 : 3;
 
-    // Strong Bullish Institutional Signal
-    if (isBullAligned && (ticker.mcdx.banker >= 65 || ticker.mfi <= 28 || ticker.volumeBurst >= 2.4)) {
-      const isOversoldAcc = ticker.mfi <= 28;
+    if (ticker.verdict === 'STRONG_LONG' || ticker.verdict === 'MODERATE_LONG') {
       const entry = ticker.lastPrice;
       const atr = ticker.atr14;
       const sl = Number(Math.max(0.0000001, entry - 1.8 * atr).toFixed(decimals));
@@ -392,10 +628,8 @@ export function generateInstitutionalSignals(tickers: MarketTicker[]): SignalIte
         symbol: ticker.symbol,
         displaySymbol: ticker.displaySymbol,
         type: 'LONG',
-        title: isOversoldAcc ? 'تجميع حيتان في قاع ارتدادي' : 'اختراق مؤسسي مع تدفق بنكي قوي',
-        reason: isOversoldAcc
-          ? `MFI في مناطق التجميع المؤسسي (${ticker.mfi.toFixed(0)}) + هيمنة صانع السوق ${ticker.mcdx.banker.toFixed(0)}%`
-          : `توافق ترند صاعد (${ticker.alignmentScore}/3) مع مضاعف فوليوم ${ticker.volumeBurst}x وهيمنة حيتان ${ticker.mcdx.banker.toFixed(0)}%`,
+        title: `توافق صاعد ${ticker.bullishConfluence}% — ${ticker.verdictText}`,
+        reason: ticker.verdictReason,
         timeframe: ticker.alignmentScore === 3 ? '15m / 1h / 4h' : '15m / 1h',
         entryPrice: entry,
         sl,
@@ -405,13 +639,12 @@ export function generateInstitutionalSignals(tickers: MarketTicker[]): SignalIte
         volumeBurst: ticker.volumeBurst,
         bankerDominance: ticker.mcdx.banker,
         mfiValue: ticker.mfi,
+        confluencePercent: ticker.bullishConfluence,
+        verdictText: ticker.verdictText,
         status: 'ACTIVE',
         timestamp: Date.now() - signals.length * 45000,
       });
-    }
-
-    // Strong Bearish Institutional Signal
-    if (isBearAligned && (ticker.mfi >= 75 || ticker.mcdx.banker <= 30)) {
+    } else if (ticker.verdict === 'STRONG_SHORT' || ticker.verdict === 'MODERATE_SHORT') {
       const entry = ticker.lastPrice;
       const atr = ticker.atr14;
       const sl = Number((entry + 1.8 * atr).toFixed(decimals));
@@ -423,8 +656,8 @@ export function generateInstitutionalSignals(tickers: MarketTicker[]): SignalIte
         symbol: ticker.symbol,
         displaySymbol: ticker.displaySymbol,
         type: 'SHORT',
-        title: 'تصريف مؤسسات وجني أرباح',
-        reason: `مؤشر MFI (${ticker.mfi.toFixed(0)}) مع كسر EMA 50 وتراجع سيولة الحيتان إلى ${ticker.mcdx.banker.toFixed(0)}%`,
+        title: `توافق هابط ${ticker.bearishConfluence}% — ${ticker.verdictText}`,
+        reason: ticker.verdictReason,
         timeframe: ticker.alignmentScore === 0 ? '15m / 1h / 4h' : '15m / 1h',
         entryPrice: entry,
         sl,
@@ -434,14 +667,15 @@ export function generateInstitutionalSignals(tickers: MarketTicker[]): SignalIte
         volumeBurst: ticker.volumeBurst,
         bankerDominance: ticker.mcdx.banker,
         mfiValue: ticker.mfi,
+        confluencePercent: ticker.bearishConfluence,
+        verdictText: ticker.verdictText,
         status: 'ACTIVE',
         timestamp: Date.now() - signals.length * 60000,
       });
     }
   }
 
-  // Sort by highest conviction (volumeBurst + bankerDominance difference)
-  signals.sort((a, b) => b.volumeBurst * 15 + b.bankerDominance - (a.volumeBurst * 15 + a.bankerDominance));
+  signals.sort((a, b) => (b.confluencePercent || 0) - (a.confluencePercent || 0));
 
   return signals.slice(0, 25);
 }

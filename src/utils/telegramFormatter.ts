@@ -7,11 +7,13 @@ export function formatTelegramSignal(
     bankerDominance?: number;
     mfi?: number;
     volumeBurst?: number;
+    confluencePercent?: number;
+    verdictText?: string;
     regime?: string;
   }
 ): string {
   const isLong = input.direction === 'LONG';
-  const dirEmoji = isLong ? '🟢 LONG' : '🔴 SHORT';
+  const dirEmoji = isLong ? '🟢 LONG (شراء)' : '🔴 SHORT (بيع)';
   const arrow = isLong ? '↗️' : '↘️';
 
   const cairoTime = new Intl.DateTimeFormat('en-GB', {
@@ -30,7 +32,8 @@ export function formatTelegramSignal(
   }).format(new Date());
 
   const formatPrice = (p: number) => {
-    if (p < 0.001) return p.toFixed(6);
+    if (p < 0.0001) return p.toFixed(7);
+    if (p < 0.01) return p.toFixed(5);
     if (p < 1) return p.toFixed(4);
     if (p < 50) return p.toFixed(3);
     return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -41,6 +44,18 @@ export function formatTelegramSignal(
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `🎯 <b>الأصل:</b> <code>${input.symbol}</code> | ${dirEmoji} ${arrow}`,
     `⏱ <b>التوقيت (Cairo):</b> <code>${cairoDate} ${cairoTime}</code>`,
+  ];
+
+  if (additionalInfo?.confluencePercent !== undefined) {
+    lines.push(
+      `📊 <b>نسبة التوافق مع التحليل:</b> <code>${additionalInfo.confluencePercent}%</code>`
+    );
+  }
+  if (additionalInfo?.verdictText) {
+    lines.push(`🚦 <b>قرار الدخول:</b> <b>${additionalInfo.verdictText}</b>`);
+  }
+
+  lines.push(
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `📥 <b>نقطة الدخول (Entry):</b> <code>${formatPrice(result.entryPrice)} USDT</code>`,
     `🛑 <b>وقف الخسارة (SL):</b> <code>${formatPrice(result.sl)} USDT</code> (1.8× ATR) [${result.slDistancePercent.toFixed(2)}%]`,
@@ -49,16 +64,23 @@ export function formatTelegramSignal(
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `💼 <b>حجم المركز المقترح:</b> <code>$${result.positionSizeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</code> (${result.positionSizeUnits.toFixed(4)} Units)`,
     `🛡 <b>مبلغ المخاطرة:</b> <code>$${result.riskAmountUsd.toFixed(2)} USDT</code> (${input.riskPercent}% من رأس المال)`,
-    `📐 <b>مؤشر التقلب ATR(14):</b> <code>${formatPrice(input.atr)}</code>`,
-  ];
+    `📐 <b>مؤشر التقلب ATR(14):</b> <code>${formatPrice(input.atr)}</code>`
+  );
 
   if (additionalInfo?.bankerDominance !== undefined || additionalInfo?.mfi !== undefined) {
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━`);
     if (additionalInfo.bankerDominance !== undefined) {
-      lines.push(`🏦 <b>تدفق السيولة المؤسسية (MCDX+):</b> <code>${additionalInfo.bankerDominance.toFixed(1)}% Banker Flow</code>`);
+      lines.push(
+        `🏦 <b>تدفق السيولة المؤسسية (MCDX+):</b> <code>${additionalInfo.bankerDominance.toFixed(1)}% Banker Flow</code>`
+      );
     }
     if (additionalInfo.mfi !== undefined) {
-      const mfiDesc = additionalInfo.mfi < 25 ? 'تجميع حيتان (Oversold)' : additionalInfo.mfi > 75 ? 'تصريف مؤسسات (Overbought)' : 'منطقة محايدة';
+      const mfiDesc =
+        additionalInfo.mfi < 25
+          ? 'تجميع حيتان (Oversold)'
+          : additionalInfo.mfi > 75
+          ? 'تصريف مؤسسات (Overbought)'
+          : 'منطقة محايدة';
       lines.push(`🌊 <b>مؤشر تدفق الأموال (MFI):</b> <code>${additionalInfo.mfi.toFixed(1)}</code> [${mfiDesc}]`);
     }
     if (additionalInfo.volumeBurst !== undefined) {
