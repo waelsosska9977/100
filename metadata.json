@@ -1,0 +1,6 @@
+{
+  "name": "SOSSKA1 Institutional Screener & Opportunity Lab",
+  "description": "لوحة تحكم وسكانر مؤسسي لتحليل وتداول العملات الرقمية بدقة عالية ومراقبة الفريمات المتعددة وهيمنة الحيتان وحاسبة إدارة المخاطر اللحظية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-canvas: #0b1020;
+    --bg-panel: #121a2b;
+    --bg-panel-subtle: #18233a;
+    --border-terminal: #1f2d47;
+    --border-accent: #2e4166;
+    --bull-emerald: #31d0a0;
+    --bear-rose: #ff7085;
+    --inst-blue: #7da8ff;
+    --alert-amber: #ffc66d;
+    font-family: 'Cairo', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: #e2e8f0;
+    overflow-x: hidden;
+  }
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom terminal subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0b1020;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2d47;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e4166;
+}
+
+/* Subtle glowing effects for live institutional indicators */
+.glow-emerald {
+  box-shadow: 0 0 12px rgba(49, 208, 160, 0.25);
+}
+.glow-rose {
+  box-shadow: 0 0 12px rgba(255, 112, 133, 0.25);
+}
+.glow-blue {
+  box-shadow: 0 0 12px rgba(125, 168, 255, 0.25);
+}
+.glow-amber {
+  box-shadow: 0 0 12px rgba(255, 198, 109, 0.25);
+}
+
