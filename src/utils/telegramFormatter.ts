@@ -1,4 +1,4 @@
-import { CalculatorResult, CalculatorState } from '../types';
+import { CalculatorResult, CalculatorState, CrossoverMoveInfo } from '../types';
 
 export function formatTelegramSignal(
   input: CalculatorState,
@@ -10,6 +10,7 @@ export function formatTelegramSignal(
     confluencePercent?: number;
     verdictText?: string;
     regime?: string;
+    crossoverMove?: CrossoverMoveInfo;
   }
 ): string {
   const isLong = input.direction === 'LONG';
@@ -39,6 +40,22 @@ export function formatTelegramSignal(
     return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  const formatPointsMove = (pts: number) => {
+    const sign = pts >= 0 ? '+' : '';
+    const abs = Math.abs(pts);
+    const formatted =
+      abs < 0.0001
+        ? pts.toFixed(7)
+        : abs < 0.01
+        ? pts.toFixed(5)
+        : abs < 1
+        ? pts.toFixed(4)
+        : abs < 50
+        ? pts.toFixed(3)
+        : pts.toFixed(2);
+    return `${sign}${formatted}$`;
+  };
+
   const lines = [
     `⚡ <b>SOSSKA1 Institutional Opportunity Lab</b>`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
@@ -53,6 +70,12 @@ export function formatTelegramSignal(
   }
   if (additionalInfo?.verdictText) {
     lines.push(`🚦 <b>قرار الدخول:</b> <b>${additionalInfo.verdictText}</b>`);
+  }
+  if (additionalInfo?.crossoverMove) {
+    const cm = additionalInfo.crossoverMove;
+    lines.push(
+      `📏 <b>الحركة منذ التقاطع:</b> <code>${formatPointsMove(cm.pointsMove)} (${cm.pctMove >= 0 ? '+' : ''}${cm.pctMove.toFixed(2)}%) | ${cm.atrMove.toFixed(2)} ATR (منذ ${cm.barsAgo} شمعة)</code> — <b>${cm.entryStatusText}</b>`
+    );
   }
 
   lines.push(

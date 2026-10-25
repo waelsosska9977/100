@@ -23,6 +23,7 @@ interface MtfMatrixTableProps {
 
 type MatrixFilter =
   | 'ALL'
+  | 'OPTIMAL_CROSS'
   | 'READY_LONG'
   | 'READY_SHORT'
   | 'BULL_3'
@@ -31,7 +32,7 @@ type MatrixFilter =
   | 'MFI_OVERSOLD'
   | 'VOL_BURST';
 
-type SortField = 'RANK' | 'CONFLUENCE' | 'CHANGE' | 'VOLUME' | 'BANKER' | 'MFI';
+type SortField = 'RANK' | 'CONFLUENCE' | 'CROSS_ATR' | 'CHANGE' | 'VOLUME' | 'BANKER' | 'MFI';
 
 export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
   tickers,
@@ -56,11 +57,20 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
     return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const formatVolume = (vol: number) => {
-    if (vol >= 1_000_000_000) return `${(vol / 1_000_000_000).toFixed(2)}B`;
-    if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
-    if (vol >= 1_000) return `${(vol / 1_000).toFixed(0)}K`;
-    return vol.toFixed(0);
+  const formatPointsMove = (pts: number) => {
+    const sign = pts >= 0 ? '+' : '';
+    const abs = Math.abs(pts);
+    const formatted =
+      abs < 0.0001
+        ? pts.toFixed(7)
+        : abs < 0.01
+        ? pts.toFixed(5)
+        : abs < 1
+        ? pts.toFixed(4)
+        : abs < 50
+        ? pts.toFixed(3)
+        : pts.toFixed(2);
+    return `${sign}${formatted}$`;
   };
 
   const getDistancePercent = (price: number, ema: number) => {
@@ -71,6 +81,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
   const counts = useMemo(() => {
     return {
       all: tickers.length,
+      optimalCross: tickers.filter((t) => t.crossoverMove.entryStatus === 'OPTIMAL').length,
       readyLong: tickers.filter(
         (t) => t.verdict === 'STRONG_LONG' || t.verdict === 'MODERATE_LONG'
       ).length,
@@ -90,6 +101,9 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
     const list = tickers.filter((t) => {
       if (q && !t.symbol.toLowerCase().includes(q) && !t.name.toLowerCase().includes(q)) {
         return false;
+      }
+      if (activeFilter === 'OPTIMAL_CROSS') {
+        return t.crossoverMove.entryStatus === 'OPTIMAL';
       }
       if (activeFilter === 'READY_LONG') {
         return t.verdict === 'STRONG_LONG' || t.verdict === 'MODERATE_LONG';
@@ -112,6 +126,9 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
         if (sortField === 'CONFLUENCE') {
           valA = a.confluencePercent;
           valB = b.confluencePercent;
+        } else if (sortField === 'CROSS_ATR') {
+          valA = a.crossoverMove.atrMove;
+          valB = b.crossoverMove.atrMove;
         } else if (sortField === 'CHANGE') {
           valA = a.priceChangePercent;
           valB = b.priceChangePercent;
@@ -144,7 +161,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
       setSortAsc(!sortAsc);
     } else {
       setSortField(field);
-      setSortAsc(field === 'MFI');
+      setSortAsc(field === 'MFI' || field === 'CROSS_ATR');
     }
     setCurrentPage(1);
   };
@@ -170,9 +187,9 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
             <div className="w-2.5 h-2.5 rounded-full bg-[#31d0a0] glow-emerald" />
             <div>
               <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-                <span>جدول مسح الـ 100 عملة ونسبة التوافق وقرار الدخول</span>
+                <span>جدول مسح الـ 100 عملة ومتتبع الحركة منذ آخر تقاطع (EMA 5/15)</span>
                 <span className="text-xs font-mono text-[#7da8ff] font-normal">
-                  100-Coin Confluence &amp; Entry Matrix
+                  100-Coin Confluence &amp; Crossover Move Tracker
                 </span>
               </h2>
             </div>
@@ -235,6 +252,20 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
           }`}
         >
           الكل ({counts.all})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveFilter('OPTIMAL_CROSS');
+            setCurrentPage(1);
+          }}
+          className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+            activeFilter === 'OPTIMAL_CROSS'
+              ? 'bg-[#31d0a0] text-slate-950 shadow-sm'
+              : 'bg-[#31d0a0]/15 text-[#31d0a0] border border-[#31d0a0]/40 hover:bg-[#31d0a0]/25'
+          }`}
+        >
+          🎯 بداية الحركة ≤ 0.8 ATR ({counts.optimalCross})
         </button>
 
         <button
@@ -323,7 +354,7 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
       </div>
 
       {/* Responsive Table */}
-      <div className="overflow-x-auto max-h-[560px]">
+      <div className="overflow-x-auto max-h-[580px]">
         <table className="w-full text-right text-xs relative">
           <thead className="sticky top-0 z-20 bg-[#0c1220] border-b border-[#1f2d47] text-slate-400 text-[11px] uppercase tracking-wider font-mono shadow-sm">
             <tr>
@@ -349,6 +380,16 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
               <th className="py-2.5 px-2 text-center font-semibold">15m</th>
               <th className="py-2.5 px-2 text-center font-semibold">1h</th>
               <th className="py-2.5 px-2 text-center font-semibold">4h</th>
+              <th className="py-2.5 px-3 text-center font-semibold font-sans text-[#31d0a0]">
+                <button
+                  onClick={() => handleSort('CROSS_ATR')}
+                  className="flex items-center justify-center gap-1 hover:text-white mx-auto"
+                  title="ترتيب حسب مقدار الحركة بالـ ATR منذ آخر تقاطع EMA 5 / EMA 15 على فريم 15m"
+                >
+                  <span>الحركة منذ آخر تقاطع</span>
+                  <ArrowUpDown size={11} />
+                </button>
+              </th>
               <th className="py-2.5 px-2.5 text-center font-semibold">
                 <button
                   onClick={() => handleSort('CONFLUENCE')}
@@ -399,6 +440,9 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                 ticker.verdict === 'STRONG_LONG' || ticker.verdict === 'MODERATE_LONG';
               const isShortVerdict =
                 ticker.verdict === 'STRONG_SHORT' || ticker.verdict === 'MODERATE_SHORT';
+
+              const cm = ticker.crossoverMove;
+              const isBullCross = cm.direction === 1;
 
               return (
                 <tr
@@ -517,6 +561,55 @@ export const MtfMatrixTable: React.FC<MtfMatrixTableProps> = ({
                       <span className="text-[9px] text-slate-400 font-mono">
                         {dist4h >= 0 ? '+' : ''}
                         {dist4h.toFixed(1)}%
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* NEW COLUMN: الحركة منذ آخر تقاطع (Crossover Move Tracker) */}
+                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                    <div className="inline-flex flex-col items-center gap-1 bg-[#0b1020]/90 px-2.5 py-1.5 rounded-lg border border-[#1f2d47]">
+                      {/* Row 1: Cross Type (صاعد 🟢 / هابط 🔴) + منذ X شمعة */}
+                      <div className="flex items-center gap-1.5 text-[10px] font-sans">
+                        <span
+                          className={`font-bold ${
+                            isBullCross ? 'text-[#31d0a0]' : 'text-[#ff7085]'
+                          }`}
+                        >
+                          تقاطع {cm.crossTypeLabel}
+                        </span>
+                        <span className="text-slate-600">|</span>
+                        <span className="font-mono text-slate-300">
+                          منذ {cm.barsAgo} شمعة
+                        </span>
+                      </div>
+
+                      {/* Row 2: Points Move + % Move + ATR Multiplier */}
+                      <div className="font-mono text-[11px] font-bold text-slate-100 dir-ltr">
+                        <span
+                          className={
+                            cm.pointsMove >= 0 ? 'text-[#31d0a0]' : 'text-[#ff7085]'
+                          }
+                        >
+                          {formatPointsMove(cm.pointsMove)} ({cm.pctMove >= 0 ? '+' : ''}
+                          {cm.pctMove.toFixed(1)}%)
+                        </span>
+                        <span className="text-slate-500 mx-1">|</span>
+                        <span className="text-[#7da8ff]">{cm.atrMove.toFixed(1)} ATR</span>
+                      </div>
+
+                      {/* Row 3: Smart Entry Zone Status Badge */}
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          cm.entryStatus === 'OPTIMAL'
+                            ? 'bg-[#31d0a0]/15 text-[#31d0a0] border-[#31d0a0]/40'
+                            : cm.entryStatus === 'CONTINUATION'
+                            ? 'bg-[#ffc66d]/15 text-[#ffc66d] border-[#ffc66d]/40'
+                            : cm.entryStatus === 'LATE'
+                            ? 'bg-[#ff7085]/15 text-[#ff7085] border-[#ff7085]/40'
+                            : 'bg-[#7da8ff]/15 text-[#7da8ff] border-[#7da8ff]/40'
+                        }`}
+                      >
+                        {cm.entryStatusText}
                       </span>
                     </div>
                   </td>

@@ -9,6 +9,23 @@ export type TradeVerdictType =
   | 'MODERATE_SHORT'
   | 'NO_TRADE';
 
+export type CrossoverEntryStatus = 'OPTIMAL' | 'CONTINUATION' | 'LATE' | 'REVERSAL';
+
+export interface CrossoverMoveInfo {
+  direction: 1 | -1;          // 1 = Bullish Cross (EMA 5 > EMA 15), -1 = Bearish Cross (EMA 5 < EMA 15)
+  crossTypeLabel: string;     // 'صاعد 🟢' | 'هابط 🔴'
+  crossPrice: number;         // Close price of the crossover candle
+  barsAgo: number;            // Number of 15m candles elapsed since crossover
+  pointsMove: number;         // (currentClose - crossPrice) * direction
+  pctMove: number;            // (pointsMove / crossPrice) * 100
+  atrMove: number;            // pointsMove / currentATR
+  ema5_15m: number;
+  ema15_15m: number;
+  entryStatus: CrossoverEntryStatus;
+  entryStatusText: string;    // '🎯 بداية الحركة (دخول مثالي)' | '⚡ حركة مستمرة' | '⚠️ متأخرة / تشبعت' | '🔄 انعكاس ضد التقاطع'
+  entryStatusColor: string;   // '#31d0a0' | '#ffc66d' | '#ff7085' | '#7da8ff'
+}
+
 export interface ConfluenceChecklistItem {
   label: string;
   passed: boolean;
@@ -47,6 +64,8 @@ export interface MarketTicker {
   trend4h: 'bull' | 'bear';
   alignmentScore: number;   // 0 to 3 (bullish score)
   volumeBurst: number;      // Multiplier vs 20-period avg volume (e.g. 2.8x)
+  // 15m EMA 5 / EMA 15 Crossover Move Tracker
+  crossoverMove: CrossoverMoveInfo;
   // Analysis Confluence & Decision Engine
   bullishConfluence: number; // 0 - 100%
   bearishConfluence: number; // 0 - 100%
@@ -77,6 +96,7 @@ export interface SignalItem {
   mfiValue: number;
   confluencePercent?: number;
   verdictText?: string;
+  crossoverMove?: CrossoverMoveInfo;
   status: 'ACTIVE' | 'TP1_HIT' | 'TP2_HIT' | 'SL_HIT';
   timestamp: number;
 }

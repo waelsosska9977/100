@@ -187,7 +187,7 @@ export const SignalsFeed: React.FC<SignalsFeedProps> = ({
                   {signal.title}: <span className="text-slate-400">{signal.reason}</span>
                 </div>
 
-                {/* Metrics Badges: Volume Burst & Banker Flow */}
+                {/* Metrics Badges: Volume Burst, Banker Flow & Crossover Move */}
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono mb-2.5">
                   <span className="px-2 py-0.5 rounded bg-[#18233a] border border-[#2e4166] text-[#7da8ff] flex items-center gap-1">
                     <ShieldCheck size={12} />
@@ -200,6 +200,21 @@ export const SignalsFeed: React.FC<SignalsFeedProps> = ({
                   <span className="px-2 py-0.5 rounded bg-[#18233a] border border-[#2e4166] text-slate-300">
                     MFI: {signal.mfiValue.toFixed(0)}
                   </span>
+                  {signal.crossoverMove && (
+                    <span
+                      className={`px-2 py-0.5 rounded border font-sans font-bold ${
+                        signal.crossoverMove.entryStatus === 'OPTIMAL'
+                          ? 'bg-[#31d0a0]/15 text-[#31d0a0] border-[#31d0a0]/40'
+                          : signal.crossoverMove.entryStatus === 'CONTINUATION'
+                          ? 'bg-[#ffc66d]/15 text-[#ffc66d] border-[#ffc66d]/40'
+                          : signal.crossoverMove.entryStatus === 'LATE'
+                          ? 'bg-[#ff7085]/15 text-[#ff7085] border-[#ff7085]/40'
+                          : 'bg-[#7da8ff]/15 text-[#7da8ff] border-[#7da8ff]/40'
+                      }`}
+                    >
+                      📏 {signal.crossoverMove.atrMove.toFixed(1)} ATR (منذ {signal.crossoverMove.barsAgo} شمعة) · {signal.crossoverMove.entryStatusText}
+                    </span>
+                  )}
                 </div>
 
                 {/* Targets Grid */}

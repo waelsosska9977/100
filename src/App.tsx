@@ -8,6 +8,7 @@ import { MarketTicker, SavedTrade, SignalItem } from './types';
 import {
   fetchLiveBinanceTickers,
   generateInstitutionalSignals,
+  getInitialMarketData,
 } from './services/binanceService';
 import { soundService } from './services/soundService';
 import { telegramService } from './services/telegramService';
@@ -22,16 +23,15 @@ import { StrategyGuideModal } from './components/StrategyGuideModal';
 import { TradeJournalModal } from './components/TradeJournalModal';
 
 export default function App() {
-  const [tickers, setTickers] = useState<MarketTicker[]>([]);
-  const [selectedTicker, setSelectedTicker] = useState<MarketTicker | null>(null);
-  const [signals, setSignals] = useState<SignalItem[]>([]);
-  const [btcMacro, setBtcMacro] = useState({
-    status15m: 'BULLISH' as 'BULLISH' | 'BEARISH',
-    status1h: 'BULLISH' as 'BULLISH' | 'BEARISH',
-    price: 94850,
-    ema100_15m: 93500,
-    ema100_1h: 92100,
-  });
+  const initialDataRef = useRef(getInitialMarketData());
+  const [tickers, setTickers] = useState<MarketTicker[]>(initialDataRef.current.tickers);
+  const [selectedTicker, setSelectedTicker] = useState<MarketTicker | null>(
+    initialDataRef.current.tickers[0] || null
+  );
+  const [signals, setSignals] = useState<SignalItem[]>(() =>
+    generateInstitutionalSignals(initialDataRef.current.tickers)
+  );
+  const [btcMacro, setBtcMacro] = useState(initialDataRef.current.btcMacro);
 
   const [isLive, setIsLive] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -217,6 +217,7 @@ export default function App() {
       mfiValue: ticker.mfi,
       confluencePercent: ticker.confluencePercent,
       verdictText: ticker.verdictText,
+      crossoverMove: ticker.crossoverMove,
       status: 'ACTIVE',
       timestamp: Date.now(),
     };

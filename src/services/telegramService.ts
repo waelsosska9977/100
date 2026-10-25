@@ -167,6 +167,26 @@ class TelegramService {
     const tp1Dist = (Math.abs(signal.tp1 - signal.entryPrice) / signal.entryPrice) * 100;
     const tp2Dist = (Math.abs(signal.tp2 - signal.entryPrice) / signal.entryPrice) * 100;
 
+    const formatPointsMove = (pts: number) => {
+      const sign = pts >= 0 ? '+' : '';
+      const abs = Math.abs(pts);
+      const formatted =
+        abs < 0.0001
+          ? pts.toFixed(7)
+          : abs < 0.01
+          ? pts.toFixed(5)
+          : abs < 1
+          ? pts.toFixed(4)
+          : abs < 50
+          ? pts.toFixed(3)
+          : pts.toFixed(2);
+      return `${sign}${formatted}$`;
+    };
+
+    const crossMoveLine = signal.crossoverMove
+      ? `📏 <b>الحركة منذ التقاطع:</b> <code>${formatPointsMove(signal.crossoverMove.pointsMove)} (${signal.crossoverMove.pctMove >= 0 ? '+' : ''}${signal.crossoverMove.pctMove.toFixed(2)}%) | ${signal.crossoverMove.atrMove.toFixed(2)} ATR (منذ ${signal.crossoverMove.barsAgo} شمعة)</code> — <b>${signal.crossoverMove.entryStatusText}</b>`
+      : null;
+
     return [
       `🚨 <b>تنبيه إشارة مؤسسية حية - SOSSKA1 Lab</b>`,
       `━━━━━━━━━━━━━━━━━━━━━━━━━`,
@@ -174,6 +194,7 @@ class TelegramService {
       `📌 <b>الاتجاه:</b> ${dirEmoji}`,
       `⏱ <b>الفريم:</b> <code>${signal.timeframe}</code> | <b>التوقيت:</b> <code>${cairoTime} Cairo</code>`,
       `💡 <b>السبب الفني:</b> ${signal.title} — ${signal.reason}`,
+      ...(crossMoveLine ? [crossMoveLine] : []),
       `━━━━━━━━━━━━━━━━━━━━━━━━━`,
       `📥 <b>سعر الدخول (Entry):</b> <code>${formatPrice(signal.entryPrice)} USDT</code>`,
       `🛑 <b>وقف الخسارة (SL - 1.8 ATR):</b> <code>${formatPrice(signal.sl)} USDT</code> (-${slDist.toFixed(2)}%)`,

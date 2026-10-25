@@ -139,6 +139,7 @@ export const OpportunityCalculator: React.FC<OpportunityCalculatorProps> = ({
           ? selectedTicker?.bullishConfluence
           : selectedTicker?.bearishConfluence,
       verdictText: selectedTicker?.verdictText,
+      crossoverMove: selectedTicker?.crossoverMove,
     });
   };
 
